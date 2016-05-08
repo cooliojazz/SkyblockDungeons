@@ -1,0 +1,9 @@
+name: SkyblockDungeons
+main: com.up.sd.SkyblockDungeons
+version: 0.1.0
+softdepend: [Multiverse-Core, Vault]
+commands:
+    sd:
+        description: The base skydungeons command
+        usage: None
+        permission: <plugin name>.sd
