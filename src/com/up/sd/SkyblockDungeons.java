@@ -6,8 +6,10 @@ import com.onarandombox.MultiverseCore.api.MultiversePlugin;
 import com.sk89q.worldedit.bukkit.WorldEditPlugin;
 import com.sk89q.worldedit.bukkit.selections.Selection;
 import com.up.sd.triggers.AreaCondition;
+import com.up.sd.triggers.SetVariableAction;
 import com.up.sd.triggers.TeleportAction;
 import com.up.sd.triggers.Trigger;
+import com.up.sd.triggers.VariableEqualCondition;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -48,6 +50,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
     double rewardamount = 0.5;
     public static Economy econ = null;
     public static Permission permission = null;
+    WorldEditPlugin worldEdit = (WorldEditPlugin)getServer().getPluginManager().getPlugin("WorldEdit");
     
     
     /**
@@ -196,14 +199,53 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                             return true;
                         }
                         case "trigger": {
-                            Trigger t = new Trigger();
-                            t.addCondition(new AreaCondition(new Location(getServer().getWorld("world"), 186, 72, 241), new Location(getServer().getWorld("world"), 190, 74, 250)));
-                            t.addAction(new TeleportAction(new Location(getServer().getWorld("world"), 189, 73, 244)));
-                            curd.addTrigger(t);
-                            WorldEditPlugin worldEdit = (WorldEditPlugin)getServer().getPluginManager().getPlugin("WorldEdit");
-                            Selection selection = worldEdit.getSelection(p);
-                            selection.
-                            return true;
+                            if (permission.has(p, "skyblockdungeons.sd.dun.trigger." + args[1]) || permission.has(p, "skyblockdungeons.sd.dun.trigger.*")) switch (args[2].toLowerCase()) {
+                                case "select": {
+                                    curd.getTriggers().stream().filter((t) -> (t.getName().equals(args[3]))).forEach((t) -> {
+                                        curt = t;
+                                    });
+                                    p.sendMessage(ChatColor.YELLOW + "Selected trigger " + curt.getName());
+                                    return true;
+                                }
+                                case "addaction": {
+                                    switch (args[2].toLowerCase()) {
+                                        case "teleport": {
+                                            curt.addAction(new TeleportAction(worldEdit.getSelection(p).getMinimumPoint()));
+                                            return true;
+                                        }
+                                        case "setblock": {
+                                            curt.addAction(new SetBlockAction(worldEdit.getSelection(p).getMinimumPoint(), p.getItemInHand()));
+                                            return true;
+                                        }
+                                        case "setvariable": {
+                                            curt.addAction(new SetVariableAction(args[3], Integer.parseInt(args[4])));
+                                            return true;
+                                        }
+                                    }
+                                }
+                                case "addcondition": {
+                                    switch (args[2].toLowerCase()) {
+                                        case "area": {
+                                            Selection sel = worldEdit.getSelection(p);
+                                            curt.addCondition(new AreaCondition(sel.getMinimumPoint(), sel.getMaximumPoint()));
+                                            return true;
+                                        }
+                                        case "variableequals": {
+                                            Selection sel = worldEdit.getSelection(p);
+                                            curt.addCondition(new VariableEqualCondition(args[3], Integer.parseInt(args[4])));
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+//                            Trigger t = new Trigger();
+//                            t.addCondition(new AreaCondition(new Location(getServer().getWorld("world"), 186, 72, 241), new Location(getServer().getWorld("world"), 190, 74, 250)));
+//                            t.addAction(new TeleportAction(new Location(getServer().getWorld("world"), 189, 73, 244)));
+//                            curd.addTrigger(t);
+//                            WorldEditPlugin worldEdit = (WorldEditPlugin)getServer().getPluginManager().getPlugin("WorldEdit");
+//                            Selection selection = worldEdit.getSelection(p);
+//                            selection.
+//                            return true;
                         }
                     }
                     break;

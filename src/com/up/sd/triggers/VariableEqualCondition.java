@@ -13,7 +13,8 @@ public class VariableEqualCondition implements Condition {
     String name;
     int val;
 
-    public VariableEqualCondition(int val) {
+    public VariableEqualCondition(String name, int val) {
+        this.name = name;
         this.val = val;
     }
     

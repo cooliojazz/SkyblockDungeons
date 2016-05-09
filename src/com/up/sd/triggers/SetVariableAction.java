@@ -13,7 +13,8 @@ public class SetVariableAction implements Action {
     String name;
     int val;
 
-    public SetVariableAction(int val) {
+    public SetVariableAction(String name, int val) {
+        this.name = name;
         this.val = val;
     }
     

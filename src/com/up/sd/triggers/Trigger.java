@@ -16,13 +16,16 @@ public class Trigger implements ConfigurationSerializable {
     List<Action> actions;
     List<Condition> conditions;
     HashMap<String, Integer> vars;
+    String name;
 
-    public Trigger() {
+    public Trigger(String name) {
+        this.name = name;
         actions = new ArrayList<>();
         conditions = new ArrayList<>();
     }
     
     public Trigger(Map<String, Object> map) {
+        name = (String)map.get("name");
         actions = (List<Action>)map.get("actions");
         conditions = (List<Condition>)map.get("conditions");
     }
@@ -41,6 +44,10 @@ public class Trigger implements ConfigurationSerializable {
     
     public void addCondition(Condition c) {
         conditions.add(c);
+    }
+
+    public String getName() {
+        return name;
     }
     
     @Override
