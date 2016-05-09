@@ -1,7 +1,11 @@
 package com.up.sd;
 
+import com.up.sd.triggers.Trigger;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
 import org.bukkit.entity.Player;
@@ -15,6 +19,7 @@ public class Dungeon implements ConfigurationSerializable {
     Map<String, Integer> cooldowns = new HashMap<>();
     Location loc;
     String reward;
+    List<Trigger> triggers = new ArrayList<>();
 
     public Dungeon(String name) {
         this.name = name;
@@ -28,6 +33,7 @@ public class Dungeon implements ConfigurationSerializable {
         for (String id : cooldowns.keySet()) {
             if (cooldowns.get(id) > 0) cooldowns.put(id, cooldowns.get(id) - 1);
         }
+        for (Player p : Bukkit.getOnlinePlayers()) for (Trigger t : triggers) if (t.triggered(p)) t.execute(p);
     }
     
     public void setCooldown(Player p, int cooldown) {
@@ -45,7 +51,6 @@ public class Dungeon implements ConfigurationSerializable {
         this.reward = reward;
     }
     
-    
     public String getRewardName() {
         return reward;
     }
@@ -56,6 +61,14 @@ public class Dungeon implements ConfigurationSerializable {
         return loc.getWorld().equals(l.getWorld()) && loc.getBlockX() == l.getBlockX() && loc.getBlockY() == l.getBlockY() && loc.getBlockZ() == l.getBlockZ();
     }
 
+    public void addTrigger(Trigger t) {
+        triggers.add(t);
+    }
+    
+    public List<Trigger> getTriggers() {
+        return new ArrayList<>(triggers);
+    }
+    
     public void setLocation(Location loc) {
         this.loc = loc;
     }
@@ -72,6 +85,7 @@ public class Dungeon implements ConfigurationSerializable {
         map.put("cooldowns", cooldowns);
         map.put("loc", new YamlLocation(loc));
         map.put("reward", reward);
+        map.put("triggers", triggers);
         return map;
     }
 
@@ -80,6 +94,7 @@ public class Dungeon implements ConfigurationSerializable {
         cooldowns = (Map<String, Integer>)map.get("cooldowns");
         loc = ((YamlLocation)map.get("loc")).getLocation();
         reward = (String)map.get("reward");
+        if (map.get("triggers") != null) triggers = (List<Trigger>)map.get("triggers");
     }
     
 }

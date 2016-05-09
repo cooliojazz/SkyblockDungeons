@@ -3,6 +3,11 @@ package com.up.sd;
 import com.onarandombox.MultiverseCore.MultiverseCore;
 import com.onarandombox.MultiverseCore.api.Core;
 import com.onarandombox.MultiverseCore.api.MultiversePlugin;
+import com.sk89q.worldedit.bukkit.WorldEditPlugin;
+import com.sk89q.worldedit.bukkit.selections.Selection;
+import com.up.sd.triggers.AreaCondition;
+import com.up.sd.triggers.TeleportAction;
+import com.up.sd.triggers.Trigger;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -13,6 +18,7 @@ import java.util.stream.Collectors;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.permission.Permission;
 import org.bukkit.ChatColor;
+import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -37,6 +43,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
     List<Dungeon> duns;
     Dungeon curd = null;
     RewardPool curr = null;
+    Trigger curt = null;
     int cooldown = 72000;
     double rewardamount = 0.5;
     public static Economy econ = null;
@@ -165,7 +172,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                     return true;
                 }
                 case "dun": {
-                    if (permission.has(p, "skyblockdungeons.sd.dun." + args[2]) || permission.has(p, "skyblockdungeons.sd.dun.*")) switch (args[1].toLowerCase()) {
+                    if (permission.has(p, "skyblockdungeons.sd.dun." + args[1]) || permission.has(p, "skyblockdungeons.sd.dun.*")) switch (args[1].toLowerCase()) {
                         case "select": {
                             duns.stream().filter((dun) -> (dun.getName().equals(args[2]))).forEach((dun) -> {
                                 curd = dun;
@@ -188,11 +195,21 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                             p.sendMessage(ChatColor.YELLOW + "Set dungeon reward to " + args[2]);
                             return true;
                         }
+                        case "trigger": {
+                            Trigger t = new Trigger();
+                            t.addCondition(new AreaCondition(new Location(getServer().getWorld("world"), 186, 72, 241), new Location(getServer().getWorld("world"), 190, 74, 250)));
+                            t.addAction(new TeleportAction(new Location(getServer().getWorld("world"), 189, 73, 244)));
+                            curd.addTrigger(t);
+                            WorldEditPlugin worldEdit = (WorldEditPlugin)getServer().getPluginManager().getPlugin("WorldEdit");
+                            Selection selection = worldEdit.getSelection(p);
+                            selection.
+                            return true;
+                        }
                     }
                     break;
                 }
                 case "reward": {
-                    if (permission.has(p, "skyblockdungeons.sd.reward." + args[2]) || permission.has(p, "skyblockdungeons.sd.reward.*")) switch (args[1].toLowerCase()) {
+                    if (permission.has(p, "skyblockdungeons.sd.reward." + args[1]) || permission.has(p, "skyblockdungeons.sd.reward.*")) switch (args[1].toLowerCase()) {
                         case "select": {
                             pools.entrySet().stream().filter((reward) -> (reward.getKey().equals(args[2]))).forEach((reward) -> {
                                 curr = reward.getValue();
@@ -219,7 +236,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                     break;
                 }
                 case "manage": {
-                    if (permission.has(p, "skyblockdungeons.sd.manage." + args[2]) || permission.has(p, "skyblockdungeons.sd.manage.*")) switch (args[1].toLowerCase()) {
+                    if (permission.has(p, "skyblockdungeons.sd.manage." + args[1]) || permission.has(p, "skyblockdungeons.sd.manage.*")) switch (args[1].toLowerCase()) {
                         case "save": {
                             saveConfig();
                             p.sendMessage(ChatColor.YELLOW + "Config saved");
@@ -261,9 +278,12 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                 case "set": {
                                     return new ArrayList<>();
                                 }
+                                case "trigger": {
+                                    return new ArrayList<>();
+                                }
                             }
                         }
-                        return Arrays.asList(new String[] {"create", "reward", "select", "set"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
+                        return Arrays.asList(new String[] {"create", "reward", "select", "set", "trigger"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
                     }
                     case "reward": {
                         if (args.length > 2) {
