@@ -1,15 +1,23 @@
 package com.up.sd;
 
+import com.up.sd.trigger.action.SetBlocksAction;
 import com.onarandombox.MultiverseCore.MultiverseCore;
-import com.onarandombox.MultiverseCore.api.Core;
-import com.onarandombox.MultiverseCore.api.MultiversePlugin;
 import com.sk89q.worldedit.bukkit.WorldEditPlugin;
 import com.sk89q.worldedit.bukkit.selections.Selection;
-import com.up.sd.triggers.AreaCondition;
-import com.up.sd.triggers.SetVariableAction;
-import com.up.sd.triggers.TeleportAction;
-import com.up.sd.triggers.Trigger;
-import com.up.sd.triggers.VariableEqualCondition;
+import com.up.sd.trigger.action.Action;
+import com.up.sd.trigger.action.AddVariableAction;
+import com.up.sd.trigger.condition.AreaCondition;
+import com.up.sd.trigger.condition.Condition;
+import com.up.sd.trigger.action.EffectAction;
+import com.up.sd.trigger.action.MessageAction;
+import com.up.sd.trigger.action.MoveBlocksAction;
+import com.up.sd.trigger.action.SetVariableAction;
+import com.up.sd.trigger.action.TeleportAction;
+import com.up.sd.trigger.Trigger;
+import com.up.sd.trigger.action.SpawnEntityAction;
+import com.up.sd.trigger.condition.EntityExistsCondition;
+import com.up.sd.trigger.condition.VariableEqualCondition;
+import com.up.sd.trigger.condition.VariableNotEqualCondition;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -19,21 +27,46 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.permission.Permission;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.configuration.serialization.ConfigurationSerialization;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.Potion;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 
 /**
  *
+ * TODO:
+ * - Make cur variables per player
+ * - Add more actions:
+ *  - VarSub
+ *  - SoftTeleport
+ *  - Spawn
+ * - Add more conditions:
+ *  - Click
+ *  - VarLessthan
+ *  - VarGreaterthan
+ *  - EntityIn
+ * - Add trigger mode toggle (AND|OR)
+ * - Variables in message
+ * - Dungeon variable saving
+ * - Delete options
+ * - Rename options
+ * - Entity potion effects should last forever
+ * 
  * @author Ricky
  */
 
@@ -60,9 +93,22 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
     
     @Override
     public void onEnable() {
-        ConfigurationSerialization.registerClass(RewardPool.class);
+        ConfigurationSerialization.registerClass(AreaCondition.class);
+        ConfigurationSerialization.registerClass(EntityExistsCondition.class);
+        ConfigurationSerialization.registerClass(VariableEqualCondition.class);
+        ConfigurationSerialization.registerClass(VariableNotEqualCondition.class);
+        ConfigurationSerialization.registerClass(AddVariableAction.class);
+        ConfigurationSerialization.registerClass(EffectAction.class);
+        ConfigurationSerialization.registerClass(MessageAction.class);
+        ConfigurationSerialization.registerClass(MoveBlocksAction.class);
+        ConfigurationSerialization.registerClass(SetBlocksAction.class);
+        ConfigurationSerialization.registerClass(SetVariableAction.class);
+        ConfigurationSerialization.registerClass(SpawnEntityAction.class);
+        ConfigurationSerialization.registerClass(TeleportAction.class);
         ConfigurationSerialization.registerClass(Dungeon.class);
+        ConfigurationSerialization.registerClass(RewardPool.class);
         ConfigurationSerialization.registerClass(YamlLocation.class);
+        ConfigurationSerialization.registerClass(Trigger.class);
         ((MultiverseCore)getServer().getPluginManager().getPlugin("Multiverse-Core")).getMVWorldManager().loadWorlds(false);
         loadConfig();
         getServer().getPluginManager().registerEvents(this, this);
@@ -114,6 +160,9 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
             pools = new HashMap<>();
             conf.getConfigurationSection("rewards").getValues(false).entrySet().stream().forEach(e -> pools.put(e.getKey(), (RewardPool)e.getValue()));
             getLogger().info("Loaded " + pools.size() + " rewards.");
+            curd = null;
+            curr = null;
+            curt = null;
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -167,131 +216,451 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (sender instanceof Player) {
             Player p = (Player)sender;
-            if (cmd.getName().equalsIgnoreCase("sd") && permission.has(p, "skyblockdungeons.sd." + args[0]) || permission.has(p, "skyblockdungeons.sd.*")) switch (args[0].toLowerCase()) {
-                case "list": {
-                    p.sendMessage(ChatColor.YELLOW + "Dungeons:");
-                    ChatColor[] colors = new ChatColor[] {ChatColor.GREEN, ChatColor.YELLOW, ChatColor.GOLD, ChatColor.RED, ChatColor.DARK_RED};
-                    for (Dungeon dun : duns) p.sendRawMessage(dun.getName() + colors[(int)(colors.length * ((double)dun.getCooldown(p) / cooldown))] + " [" + timeToString(dun.getCooldown(p)) + "]");
-                    return true;
-                }
-                case "dun": {
-                    if (permission.has(p, "skyblockdungeons.sd.dun." + args[1]) || permission.has(p, "skyblockdungeons.sd.dun.*")) switch (args[1].toLowerCase()) {
-                        case "select": {
-                            duns.stream().filter((dun) -> (dun.getName().equals(args[2]))).forEach((dun) -> {
-                                curd = dun;
-                            });
-                            p.sendMessage(ChatColor.YELLOW + "Selected dungeon " + curd.getName());
-                            return true;
-                        }
-                        case "create": {
-                            duns.add(new Dungeon(args[2]));
-                            p.sendMessage(ChatColor.YELLOW + "Create dungeon " + args[2]);
-                            return true;
-                        }
-                        case "set": {
-                            curd.setLocation(p.getLocation());
-                            p.sendMessage(ChatColor.YELLOW + "Set dungeon to " + p.getLocation());
-                            return true;
-                        }
-                        case "reward": {
-                            curd.setRewardName(args[3]);
-                            p.sendMessage(ChatColor.YELLOW + "Set dungeon reward to " + args[2]);
-                            return true;
-                        }
-                        case "trigger": {
-                            if (permission.has(p, "skyblockdungeons.sd.dun.trigger." + args[1]) || permission.has(p, "skyblockdungeons.sd.dun.trigger.*")) switch (args[2].toLowerCase()) {
+            if (cmd.getName().equalsIgnoreCase("sd")) if (args.length > 0) {
+                if (permission.has(p, "skyblockdungeons.sd." + args[0]) || permission.has(p, "skyblockdungeons.sd.*")) switch (args[0].toLowerCase()) {
+                    case "list": {
+                        p.sendMessage(ChatColor.YELLOW + "Dungeons:");
+                        ChatColor[] colors = new ChatColor[] {ChatColor.GREEN, ChatColor.YELLOW, ChatColor.GOLD, ChatColor.RED, ChatColor.DARK_RED};
+                        for (Dungeon dun : duns) p.sendRawMessage(dun.getName() + colors[(int)(colors.length * ((double)dun.getCooldown(p) / cooldown))] + " [" + timeToString(dun.getCooldown(p)) + "]");
+                        return true;
+                    }
+                    case "dun": {
+                        if (args.length > 1) {
+                            if (permission.has(p, "skyblockdungeons.sd.dun." + args[1]) || permission.has(p, "skyblockdungeons.sd.dun.*")) switch (args[1].toLowerCase()) {
+                                case "create": {
+                                    if (args.length > 2) {
+                                        duns.add(new Dungeon(args[2]));
+                                        p.sendMessage(ChatColor.YELLOW + "Created dungeon " + args[2]);
+                                        return true;
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun create <name>");
+                                        return true;
+                                    }
+                                }
                                 case "select": {
-                                    curd.getTriggers().stream().filter((t) -> (t.getName().equals(args[3]))).forEach((t) -> {
-                                        curt = t;
-                                    });
-                                    p.sendMessage(ChatColor.YELLOW + "Selected trigger " + curt.getName());
+                                    curd = duns.stream().filter((dun) -> (dun.getName().equals(args[2]))).findFirst().orElse(null);
+                                    if (curd != null) {
+                                        p.sendMessage(ChatColor.YELLOW + "Selected dungeon " + curd.getName());
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "ERROR: No such dungeon.");
+                                    }
                                     return true;
                                 }
-                                case "addaction": {
-                                    switch (args[2].toLowerCase()) {
-                                        case "teleport": {
-                                            curt.addAction(new TeleportAction(worldEdit.getSelection(p).getMinimumPoint()));
+                                case "set": {
+                                    if (curd != null) {
+                                        curd.setLocation(p.getLocation());
+                                        p.sendMessage(ChatColor.YELLOW + "Set dungeon to " + p.getLocation());
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "ERROR: No dungeon selected.");
+                                    }
+                                    return true;
+                                }
+                                case "reward": {
+                                    if (curd != null) {
+                                        curd.setRewardName(args[2]);
+                                        p.sendMessage(ChatColor.YELLOW + "Set dungeon reward to " + args[2]);
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "ERROR: No dungeon selected.");
+                                    }
+                                    return true;
+                                }
+                                case "trigger": {
+                                    if (args.length > 2) {
+                                        if (curd != null) {
+                                            Selection sel = worldEdit.getSelection(p);
+                                            if (permission.has(p, "skyblockdungeons.sd.dun.trigger." + args[1]) || permission.has(p, "skyblockdungeons.sd.dun.trigger.*")) switch (args[2].toLowerCase()) {
+                                                case "action": {
+                                                    if (args.length > 3) {
+                                                        switch (args[3].toLowerCase()) {
+                                                            case "add": {
+                                                                if (curt != null) {
+                                                                    if (args.length > 4) {
+                                                                        switch (args[4].toLowerCase()) {
+                                                                            case "addvar": {
+                                                                                if (args.length > 6) {
+                                                                                    curt.addAction(new AddVariableAction(args[5], Integer.parseInt(args[6])));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new addvar action.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action add addvar <var> <value>");
+                                                                                    return true;
+                                                                                }
+                                                                            }
+                                                                            case "effect": {
+                                                                                if (args.length > 7) {
+                                                                                    curt.addAction(new EffectAction(new PotionEffect(PotionEffectType.getByName(args[5]), Integer.parseInt(args[6]), Integer.parseInt(args[7]))));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new effect action.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action add effect <effect> <duration> <level>");
+                                                                                    return true;
+                                                                                }
+                                                                            }
+                                                                            case "message": {
+                                                                                curt.addAction(new MessageAction(String.join(" ", Arrays.copyOfRange(args, 5, args.length))));
+                                                                                p.sendMessage(ChatColor.YELLOW + "Added new message action.");
+                                                                                return true;
+                                                                            }
+                                                                            case "moveblocks": {
+                                                                                curt.addAction(new MoveBlocksAction(p.getLocation().subtract(0, 1, 0), sel.getMinimumPoint(), sel.getMaximumPoint()));
+                                                                                p.sendMessage(ChatColor.YELLOW + "Added new moveblocks action.");
+                                                                                return true;
+                                                                            }
+                                                                            case "setblocks": {
+                                                                                curt.addAction(new SetBlocksAction(sel.getMinimumPoint(), sel.getMaximumPoint(), p.getItemInHand()));
+                                                                                p.sendMessage(ChatColor.YELLOW + "Added new setblocks action.");
+                                                                                return true;
+                                                                            }
+                                                                            case "setvar": {
+                                                                                if (args.length > 6) {
+                                                                                    curt.addAction(new SetVariableAction(args[5], Integer.parseInt(args[6])));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new setvar action.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action add setvar <var> <value>");
+                                                                                    return true;
+                                                                                }
+                                                                            }
+                                                                            case "spawn": {
+                                                                                if (args.length > 6) {
+                                                                                    int health = -1;
+                                                                                    String name = null;
+                                                                                    if (args.length > 7) {
+                                                                                        health = Integer.parseInt(args[7]);
+                                                                                    }
+                                                                                    if (args.length > 8) {
+                                                                                        name = args[8];
+                                                                                    }
+                                                                                    ArrayList<PotionEffect> pes = new ArrayList<>();
+                                                                                    for (ItemStack i : p.getInventory().getContents()) if (i != null && i.getType() != null && i.getType().equals(Material.POTION)) pes.addAll(Potion.fromItemStack(i).getEffects());
+                                                                                    curt.addAction(new SpawnEntityAction(EntityType.valueOf(args[5]), Integer.parseInt(args[6]), p.getLocation(), health, name, pes, p.getInventory().getArmorContents(), p.getItemInHand()));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new spawn action.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action add spawn <type> <amount> [health] [name]");
+                                                                                    return true;
+                                                                                }
+                                                                            }
+                                                                            case "teleport": {
+                                                                                curt.addAction(new TeleportAction(p.getLocation()));
+                                                                                p.sendMessage(ChatColor.YELLOW + "Added new teleport action.");
+                                                                                return true;
+                                                                            }
+                                                                            default: {
+                                                                                p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action add <addvar|effect|message|moveblocks|setblocks|setvar|spawn|teleport>");
+                                                                                return true;
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action add <addvar|effect|message|moveblocks|setblocks|setvar|spawn|teleport>");
+                                                                        return true;
+                                                                    }
+                                                                } else {
+                                                                    p.sendMessage(ChatColor.RED + "ERROR: No trigger selected.");
+                                                                    return true;
+                                                                }
+                                                            }
+                                                            case "list": {
+                                                                if (curt != null) {
+                                                                    p.sendMessage(ChatColor.YELLOW + "Actions in " + curt.getName() + ":");
+                                                                    for (int i = 0; i < curt.getActions().size(); i++) {
+                                                                        Action a  = curt.getActions().get(i);
+                                                                        p.sendMessage(ChatColor.YELLOW + "  " + i + ": " + a);
+                                                                    }
+                                                                    return true;
+                                                                } else {
+                                                                    p.sendMessage(ChatColor.RED + "ERROR: No trigger selected.");
+                                                                    return true;
+                                                                }
+                                                            }
+                                                            case "remove": {
+                                                                if (curt != null) {
+                                                                    if (args.length > 4) {
+                                                                        curt.removeAction(Integer.parseInt(args[4]));
+                                                                        p.sendMessage(ChatColor.YELLOW + "Removed action " + args[4]);
+                                                                        return true;
+                                                                    } else {
+                                                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action remove <number>");
+                                                                        return true;
+                                                                    }
+                                                                } else {
+                                                                    p.sendMessage(ChatColor.RED + "ERROR: No trigger selected.");
+                                                                    return true;
+                                                                }
+                                                            }
+                                                            default: {
+                                                                p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action add <add|list|remove>");
+                                                                return true;
+                                                            }
+                                                        }
+                                                    } else {
+                                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger action <add|list|remove>");
+                                                        return true;
+                                                    }
+                                                }
+                                                case "condition": {
+                                                    if (args.length > 3) {
+                                                        switch (args[3].toLowerCase()) {
+                                                            case "add": {
+                                                                if (curt != null) {
+                                                                    if (args.length > 4) {
+                                                                        switch (args[4].toLowerCase()) {
+                                                                            case "area": {
+                                                                                curt.addCondition(new AreaCondition(sel.getMinimumPoint(), sel.getMaximumPoint()));
+                                                                                p.sendMessage(ChatColor.YELLOW + "Added new area condition.");
+                                                                                return true;
+                                                                            }
+                                                                            case "entityexists": {
+                                                                                if (args.length > 6) {
+                                                                                    String name = null;
+                                                                                    if (args.length > 7) {
+                                                                                        name = args[7];
+                                                                                    }
+                                                                                    curt.addCondition(new EntityExistsCondition(sel.getMinimumPoint(), sel.getMaximumPoint(), EntityType.valueOf(args[5]), name));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new entityexists condition.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition add entityexists <type> [name]");
+                                                                                    return true;
+                                                                                }
+                                                                            }
+                                                                            case "varequals": {
+                                                                                if (args.length > 5) {
+                                                                                    curt.addCondition(new VariableEqualCondition(args[5], Integer.parseInt(args[6])));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new varequals condition.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition add varequals <var> <value>");
+                                                                                    return true;
+                                                                                }
+                                                                            }
+                                                                            case "varnotequals": {
+                                                                                if (args.length > 5) {
+                                                                                    curt.addCondition(new VariableNotEqualCondition(args[5], Integer.parseInt(args[6])));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new varnotequals condition.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition add varnotequals <var> <value>");
+                                                                                    return true;
+                                                                                }
+                                                                            }
+                                                                            default: {
+                                                                                p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition add <area|entityexists|varequals|varnotequals>");
+                                                                                return true;
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition add <area|entityexists|varequals|varnotequals>");
+                                                                        return true;
+                                                                    }
+                                                                } else {
+                                                                    p.sendMessage(ChatColor.RED + "ERROR: No trigger selected.");
+                                                                    return true;
+                                                                }
+                                                            }
+                                                            case "list": {
+                                                                if (curt != null) {
+                                                                    p.sendMessage(ChatColor.YELLOW + "Conditions in " + curt.getName() + ":");
+                                                                    for (int i = 0; i < curt.getConditions().size(); i++) {
+                                                                        Condition c  = curt.getConditions().get(i);
+                                                                        p.sendMessage(ChatColor.YELLOW + "  " + i + ": " + c);
+                                                                    }
+                                                                    return true;
+                                                                } else {
+                                                                    p.sendMessage(ChatColor.RED + "ERROR: No trigger selected.");
+                                                                    return true;
+                                                                }
+                                                            }
+                                                            case "remove": {
+                                                                if (curt != null) {
+                                                                    if (args.length > 4) {
+                                                                        curt.removeCondition(Integer.parseInt(args[4]));
+                                                                        p.sendMessage(ChatColor.YELLOW + "Removed condition " + args[4]);
+                                                                        return true;
+                                                                    } else {
+                                                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition remove <number>");
+                                                                        return true;
+                                                                    }
+                                                                } else {
+                                                                    p.sendMessage(ChatColor.RED + "ERROR: No trigger selected.");
+                                                                    return true;
+                                                                }
+                                                            }
+                                                            default: {
+                                                                p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition <add|list|remove>");
+                                                                return true;
+                                                            }
+                                                        }
+                                                    } else {
+                                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition <add|list|remove>");
+                                                        return true;
+                                                    }
+                                                }
+                                                case "create": {
+                                                    if (args.length > 3) {
+                                                        Trigger t = new Trigger(args[3]);
+                                                        curd.addTrigger(t);
+                                                        p.sendMessage(ChatColor.YELLOW + "Created trigger " + t.getName());
+                                                        return true;
+                                                    } else {
+                                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger create <name>");
+                                                        return true;
+                                                    }
+                                                }
+                                                case "inverted": {
+                                                    if (args.length > 3) {
+                                                        curt.setInverted(Boolean.parseBoolean(args[3]));
+                                                        p.sendMessage(ChatColor.YELLOW + "Set trigger to be " + (curt.isInverted() ? "" : "not ") + "inverted");
+                                                        return true;
+                                                    } else {
+                                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger inverted <true|false>");
+                                                        return true;
+                                                    }
+                                                }
+                                                case "list": {
+                                                    p.sendMessage(ChatColor.YELLOW + "Triggers in " + curd.getName() + ":");
+                                                    for (Trigger t : curd.getTriggers()) p.sendMessage(ChatColor.YELLOW + "  " + t.getName());
+                                                    return true;
+                                                }
+                                                case "select": {
+                                                    curt = curd.getTriggers().stream().filter((t) -> (t.getName().equals(args[3]))).findFirst().orElse(null);
+                                                    if (curt != null) {
+                                                        p.sendMessage(ChatColor.YELLOW + "Selected trigger " + curt.getName());
+                                                    } else {
+                                                        p.sendMessage(ChatColor.RED + "ERROR: No such trigger.");
+                                                    }
+                                                    return true;
+                                                }
+                                                default: {
+                                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger <action|condition|inverted|list|create|select>");
+                                                    return true;
+                                                }
+                                            }
+                                        } else {
+                                            p.sendMessage(ChatColor.RED + "ERROR: No dungeon selected.");
                                             return true;
                                         }
-                                        case "setblock": {
-                                            curt.addAction(new SetBlockAction(worldEdit.getSelection(p).getMinimumPoint(), p.getItemInHand()));
-                                            return true;
-                                        }
-                                        case "setvariable": {
-                                            curt.addAction(new SetVariableAction(args[3], Integer.parseInt(args[4])));
-                                            return true;
-                                        }
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger <action|condition|inverted|list|create|select>");
+                                        return true;
                                     }
                                 }
-                                case "addcondition": {
-                                    switch (args[2].toLowerCase()) {
-                                        case "area": {
-                                            Selection sel = worldEdit.getSelection(p);
-                                            curt.addCondition(new AreaCondition(sel.getMinimumPoint(), sel.getMaximumPoint()));
-                                            return true;
+                                case "vars": {
+                                    if (curd != null) {
+                                        if (args.length > 2) {
+                                            p.sendMessage(ChatColor.YELLOW + "Player " + p.getName() + "'s variables:");
+                                            for (Map.Entry<String, Integer> e : curd.vars.get(p).entrySet()) p.sendMessage(ChatColor.YELLOW + "  " + e.getKey() + ": " + e.getValue());
+                                        } else {
+                                            p.sendMessage(ChatColor.YELLOW + "Dungeon global variables:");
+                                            for (Map.Entry<String, Integer> e : curd.globals.entrySet()) p.sendMessage(ChatColor.YELLOW + "  " + e.getKey() + ": " + e.getValue());
+                                            
                                         }
-                                        case "variableequals": {
-                                            Selection sel = worldEdit.getSelection(p);
-                                            curt.addCondition(new VariableEqualCondition(args[3], Integer.parseInt(args[4])));
-                                            return true;
-                                        }
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "ERROR: No dungeon selected.");
                                     }
+                                    return true;
+                                }
+                                default: {
+                                    p.sendMessage(ChatColor.RED + "Usage: /sd dun <create|select|set|reward|trigger|vars>");
+                                    return true;
                                 }
                             }
-//                            Trigger t = new Trigger();
-//                            t.addCondition(new AreaCondition(new Location(getServer().getWorld("world"), 186, 72, 241), new Location(getServer().getWorld("world"), 190, 74, 250)));
-//                            t.addAction(new TeleportAction(new Location(getServer().getWorld("world"), 189, 73, 244)));
-//                            curd.addTrigger(t);
-//                            WorldEditPlugin worldEdit = (WorldEditPlugin)getServer().getPluginManager().getPlugin("WorldEdit");
-//                            Selection selection = worldEdit.getSelection(p);
-//                            selection.
-//                            return true;
+                        } else {
+                            p.sendMessage(ChatColor.RED + "Usage: /sd dun <create|select|set|reward|trigger|vars>");
+                            return true;
+                        }
+                        break;
+                    }
+                    case "reward": {
+                        if (args.length > 1) {
+                            if (permission.has(p, "skyblockdungeons.sd.reward." + args[1]) || permission.has(p, "skyblockdungeons.sd.reward.*")) switch (args[1].toLowerCase()) {
+                                case "add": {
+                                    if (curr != null) {
+                                        curr.addItem(p.getItemInHand().clone());
+                                        p.sendMessage(ChatColor.YELLOW + "Added item to reward");
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "ERROR: No reward selected.");
+                                    }
+                                    return true;
+                                }
+                                case "create": {
+                                    if (args.length > 2) {
+                                        pools.put(args[2], new RewardPool());
+                                        p.sendMessage(ChatColor.YELLOW + "Created reward " + args[2]);
+                                        return true;
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "Usage: /sd reward create <name>");
+                                        return true;
+                                    }
+                                }
+                                case "money": {
+                                    if (curr != null) {
+                                        if (args.length > 2) {
+                                            curr.setMoney(Double.parseDouble(args[2]));
+                                            p.sendMessage(ChatColor.YELLOW + "Set money to $" + args[2]);
+                                            return true;
+                                        } else {
+                                            p.sendMessage(ChatColor.RED + "Usage: /sd reward money <amount>");
+                                            return true;
+                                        }
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "ERROR: No reward selected.");
+                                        return true;
+                                    }
+                                }
+                                case "select": {
+                                    curr = pools.entrySet().stream().filter((reward) -> (reward.getKey().equals(args[2]))).map(reward -> reward.getValue()).findFirst().orElse(null);
+                                    if (curr != null) {
+                                        p.sendMessage(ChatColor.YELLOW + "Selected reward " + args[2]);
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "ERROR: No such reward.");
+                                    }
+                                    return true;
+                                }
+                                default: {
+                                    p.sendMessage(ChatColor.RED + "Usage: /sd reward <add|create|money|select>");
+                                    return true;
+                                }
+                            }
+                        } else {
+                            p.sendMessage(ChatColor.RED + "Usage: /sd reward <add|create|money|select>");
+                            return true;
+                        }
+                        break;
+                    }
+                    case "manage": {
+                        if (args.length > 1) {
+                            if (permission.has(p, "skyblockdungeons.sd.manage." + args[1]) || permission.has(p, "skyblockdungeons.sd.manage.*")) switch (args[1].toLowerCase()) {
+                                case "reload": {
+                                    loadConfig();
+                                    p.sendMessage(ChatColor.YELLOW + "Config reloaded");
+                                    return true;
+                                }
+                                case "save": {
+                                    saveConfig();
+                                    p.sendMessage(ChatColor.YELLOW + "Config saved");
+                                    return true;
+                                }
+                                default: {
+                                    p.sendMessage(ChatColor.RED + "Usage: /sd manage <reload|save>");
+                                    return true;
+                                }
+                            }
+                            break;
+                        } else {
+                            p.sendMessage(ChatColor.RED + "Usage: /sd manage <reload|save>");
+                            return true;
                         }
                     }
-                    break;
-                }
-                case "reward": {
-                    if (permission.has(p, "skyblockdungeons.sd.reward." + args[1]) || permission.has(p, "skyblockdungeons.sd.reward.*")) switch (args[1].toLowerCase()) {
-                        case "select": {
-                            pools.entrySet().stream().filter((reward) -> (reward.getKey().equals(args[2]))).forEach((reward) -> {
-                                curr = reward.getValue();
-                            });
-                            p.sendMessage(ChatColor.YELLOW + "Selected reward " + args[2]);
-                            return true;
-                        }
-                        case "create": {
-                            pools.put(args[3], new RewardPool());
-                            p.sendMessage(ChatColor.YELLOW + "Created reward " + args[2]);
-                            return true;
-                        }
-                        case "add": {
-                            curr.addItem(p.getItemInHand().clone());
-                            p.sendMessage(ChatColor.YELLOW + "Added item to reward");
-                            return true;
-                        }
-                        case "money": {
-                            curr.setMoney(Double.parseDouble(args[3]));
-                            p.sendMessage(ChatColor.YELLOW + "Set money to $" + args[2]);
-                            return true;
-                        }
+                    default: {
+                        p.sendMessage(ChatColor.RED + "Usage: /sd <dun|list|manage|reward>");
+                        return true;
                     }
-                    break;
                 }
-                case "manage": {
-                    if (permission.has(p, "skyblockdungeons.sd.manage." + args[1]) || permission.has(p, "skyblockdungeons.sd.manage.*")) switch (args[1].toLowerCase()) {
-                        case "save": {
-                            saveConfig();
-                            p.sendMessage(ChatColor.YELLOW + "Config saved");
-                            return true;
-                        }
-                        case "reload": {
-                            loadConfig();
-                            p.sendMessage(ChatColor.YELLOW + "Config reloaded");
-                            return true;
-                        }
-                    }
-                    break;
-                }
+                return true;
+            } else {
+                p.sendMessage(ChatColor.RED + "Usage: /sd <dun|list|manage|reward>");
+                return true;
             }
         }
         return false;
@@ -321,11 +690,144 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                     return new ArrayList<>();
                                 }
                                 case "trigger": {
-                                    return new ArrayList<>();
+                                    if (args.length > 3) {
+                                        switch (args[2].toLowerCase()) {
+                                            case "action": {
+                                                if (args.length > 4) {
+                                                    switch (args[3].toLowerCase()) {
+                                                        case "add": {
+                                                            if (args.length > 5) {
+                                                                switch (args[4].toLowerCase()) {
+                                                                    case "addvar": {
+                                                                        if (curd != null) {
+                                                                            return curd.getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                        } else {
+                                                                            return new ArrayList<>();
+                                                                        }
+                                                                    }
+                                                                    case "effect": {
+                                                                        if (args.length == 6) {
+                                                                            return Arrays.asList(PotionEffectType.values()).stream().filter(e -> e != null).map(e -> e.getName()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                        }
+                                                                        return new ArrayList<>();
+                                                                    }
+                                                                    case "message": {
+                                                                        return new ArrayList<>();
+                                                                    }
+                                                                    case "setblocks": {
+                                                                        return new ArrayList<>();
+                                                                    }
+                                                                    case "setvar": {
+                                                                        if (curd != null) {
+                                                                            return curd.getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                        } else {
+                                                                            return new ArrayList<>();
+                                                                        }
+                                                                    }
+                                                                    case "spawn": {
+                                                                        if (args.length == 6) {
+                                                                            return Arrays.asList(EntityType.values()).stream().filter(e -> e != null).map(e -> e.name()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                        }
+                                                                        return new ArrayList<>();
+                                                                    }
+                                                                    case "teleport": {
+                                                                        return new ArrayList<>();
+                                                                    }
+                                                                }
+                                                            }
+                                                            return Arrays.asList(new String[] {"addvar", "effect", "message", "moveblocks", "setblocks", "setvar", "spawn", "teleport"}).stream().filter(s -> s.startsWith(args[4])).collect(Collectors.toList());
+                                                        }
+                                                        case "list": {
+                                                            return new ArrayList<>();
+                                                        }
+                                                        case "remove": {
+                                                            if (curt != null) {
+                                                                ArrayList<String> tabs = new ArrayList<>();
+                                                                for (int i = 0; i < curt.getActions().size(); i++) tabs.add(i + "");
+                                                                return tabs;
+                                                            } else {
+                                                                return new ArrayList<>();
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                return Arrays.asList(new String[] {"add", "list", "remove"}).stream().filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
+                                            }
+                                            case "condition": {
+                                                if (args.length > 4) {
+                                                    switch (args[3].toLowerCase()) {
+                                                        case "add": {
+                                                            if (args.length > 5) {
+                                                                switch (args[4].toLowerCase()) {
+                                                                    case "area": {
+                                                                        return new ArrayList<>();
+                                                                    }
+                                                                    case "entityexists": {
+                                                                        if (args.length == 6) {
+                                                                            return Arrays.asList(EntityType.values()).stream().filter(e -> e != null).map(e -> e.name()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                        }
+                                                                        return new ArrayList<>();
+                                                                    }
+                                                                    case "varequals": {
+                                                                        if (curt != null) {
+                                                                            return curd.getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                        } else {
+                                                                            return new ArrayList<>();
+                                                                        }
+                                                                    }
+                                                                    case "varnotequals": {
+                                                                        if (curt != null) {
+                                                                            return curd.getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                        } else {
+                                                                            return new ArrayList<>();
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            return Arrays.asList(new String[] {"area", "entityexists", "varequals", "varnotequals"}).stream().filter(s -> s.startsWith(args[4])).collect(Collectors.toList());
+                                                        }
+                                                        case "list": {
+                                                            return new ArrayList<>();
+                                                        }
+                                                        case "remove": {
+                                                            if (curt != null) {
+                                                                ArrayList<String> tabs = new ArrayList<>();
+                                                                for (int i = 0; i < curt.getConditions().size(); i++) tabs.add(i + "");
+                                                                return tabs;
+                                                            } else {
+                                                                return new ArrayList<>();
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                return Arrays.asList(new String[] {"add", "list", "remove"}).stream().filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
+                                            }
+                                            case "create": {
+                                                return new ArrayList<>();
+                                            }
+                                            case "list": {
+                                                return new ArrayList<>();
+                                            }
+                                            case "inverted": {
+                                                return Arrays.asList(new String[] {"true", "false"}).stream().filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
+                                            }
+                                            case "select": {
+                                                if (curd != null) {
+                                                    return curd.getTriggers().stream().map(t -> t.getName()).filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
+                                                } else {
+                                                    return new ArrayList<>();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    return Arrays.asList(new String[] {"action", "condition", "create", "inverted", "list", "select"}).stream().filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
+                                }
+                                case "vars": {
+                                    return Arrays.asList(Bukkit.getOnlinePlayers()).stream().map(p -> p.getName()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
                                 }
                             }
                         }
-                        return Arrays.asList(new String[] {"create", "reward", "select", "set", "trigger"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
+                        return Arrays.asList(new String[] {"create", "reward", "select", "set", "trigger", "vars"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
                     }
                     case "reward": {
                         if (args.length > 2) {
@@ -364,5 +866,9 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
             return Arrays.asList(new String[] {"dun", "list", "manage", "reward"}).stream().filter(s -> s.startsWith(args[0])).collect(Collectors.toList());
         }
         return null;
+    }
+    
+    public static String prettyLocation(Location l) {
+        return "Location {" + l.getWorld().getName() + ", " + Math.round(l.getX() * 10) * 0.1 + ", " + Math.round(l.getY() * 10) * 0.1 + ", " + Math.round(l.getZ() * 10) * 0.1 + "}";
     }
 }

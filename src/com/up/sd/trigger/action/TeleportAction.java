@@ -1,10 +1,12 @@
-package com.up.sd.triggers;
+package com.up.sd.trigger.action;
 
+import com.up.sd.SkyblockDungeons;
 import com.up.sd.YamlLocation;
 import java.util.HashMap;
 import java.util.Map;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
+import org.bukkit.util.Vector;
 
 /**
  *
@@ -23,7 +25,9 @@ public class TeleportAction implements Action {
     }
     
     @Override
-    public void run(Player p, HashMap<String, Integer> vars) {
+    public void run(Player p, HashMap<String, Integer> vars, HashMap<String, Integer> globals) {
+        p.setVelocity(new Vector(0, 0, 0));
+        p.setFallDistance(0);
         p.teleport(loc);
     }
 
@@ -32,6 +36,11 @@ public class TeleportAction implements Action {
         HashMap<String, Object> map = new HashMap<>();
         map.put("loc", new YamlLocation(loc));
         return map;
+    }
+
+    @Override
+    public String toString() {
+        return "teleport {" + SkyblockDungeons.prettyLocation(loc) + "}";
     }
 
 }

@@ -1,4 +1,4 @@
-package com.up.sd.triggers;
+package com.up.sd.trigger.condition;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -24,8 +24,14 @@ public class VariableEqualCondition implements Condition {
     }
     
     @Override
-    public boolean passes(Player p, HashMap<String, Integer> vars) {
-        return val == vars.get(name);
+    public boolean passes(Player p, HashMap<String, Integer> vars, HashMap<String, Integer> globals) {
+        if (name.startsWith("!")) {
+            if (globals.get(name) == null) return val == 0;
+            return val == globals.get(name);
+        } else {
+            if (vars.get(name) == null) return val == 0;
+            return val == vars.get(name);
+        }
     }
 
     @Override
@@ -34,5 +40,10 @@ public class VariableEqualCondition implements Condition {
         map.put("name", name);
         map.put("val", val);
         return map;
+    }
+
+    @Override
+    public String toString() {
+        return "varequals {" + name + ", " + val + "}";
     }
 }

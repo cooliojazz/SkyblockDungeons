@@ -6,12 +6,14 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.WorldCreator;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
+import org.bukkit.configuration.serialization.ConfigurationSerialization;
 
 /**
  *
  * @author Ricky
  */
 public class YamlLocation implements ConfigurationSerializable {
+    
     private Location l;
 
     public YamlLocation(Location l) {

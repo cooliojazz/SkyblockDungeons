@@ -1,5 +1,6 @@
-package com.up.sd.triggers;
+package com.up.sd.trigger.condition;
 
+import com.up.sd.SkyblockDungeons;
 import com.up.sd.YamlLocation;
 import java.util.HashMap;
 import java.util.Map;
@@ -26,16 +27,16 @@ public class AreaCondition implements Condition {
     }
     
     @Override
-    public boolean passes(Player p, HashMap<String, Integer> vars) {
+    public boolean passes(Player p, HashMap<String, Integer> vars, HashMap<String, Integer> globals) {
         Location l = p.getLocation();
         return c1.getWorld().equals(l.getWorld()) && between(c1.getBlockX(), c2.getBlockX(), l.getX()) && between(c1.getBlockY(), c2.getBlockY(), l.getY()) && between(c1.getBlockZ(), c2.getBlockZ(), l.getZ());
     }
     
     private boolean between(double d1, double d2, double v) {
         if (d1 < d2) {
-            return v >= d1 && v <= d2;
+            return v >= d1 && v < d2 + 1;
         } else {
-            return v >= d2 && v <= d1;
+            return v >= d2 && v < d1 + 1;
         }
     }
 
@@ -45,6 +46,11 @@ public class AreaCondition implements Condition {
         map.put("c1", new YamlLocation(c1));
         map.put("c2", new YamlLocation(c2));
         return map;
+    }
+
+    @Override
+    public String toString() {
+        return "area {" + SkyblockDungeons.prettyLocation(c1) + ", " + SkyblockDungeons.prettyLocation(c2) + "}";
     }
 
 }

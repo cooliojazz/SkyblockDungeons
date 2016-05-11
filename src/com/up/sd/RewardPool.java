@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
+import org.bukkit.configuration.serialization.ConfigurationSerialization;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
@@ -14,6 +15,7 @@ import org.bukkit.inventory.ItemStack;
  * @author Ricky
  */
 public class RewardPool implements ConfigurationSerializable {
+    
     private List<ItemStack> items = new ArrayList<>();
     double money = 0;
 

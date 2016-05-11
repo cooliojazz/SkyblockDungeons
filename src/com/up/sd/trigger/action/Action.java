@@ -1,4 +1,4 @@
-package com.up.sd.triggers;
+package com.up.sd.trigger.action;
 
 import java.util.HashMap;
 import org.bukkit.configuration.serialization.ConfigurationSerializable;
@@ -8,7 +8,7 @@ import org.bukkit.entity.Player;
  *
  * @author ricky.t
  */
-interface Action extends ConfigurationSerializable {
+public interface Action extends ConfigurationSerializable {
     
 //    enum ACTIONTYPE {
 //        TELEPORT,
@@ -17,7 +17,7 @@ interface Action extends ConfigurationSerializable {
 //        GIVE
 //    }
 
-    void run(Player p, HashMap<String, Integer> vars);
+    void run(Player p, HashMap<String, Integer> vars, HashMap<String, Integer> globals);
     
 }
  

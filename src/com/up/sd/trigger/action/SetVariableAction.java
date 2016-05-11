@@ -1,4 +1,4 @@
-package com.up.sd.triggers;
+package com.up.sd.trigger.action;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -9,7 +9,7 @@ import org.bukkit.entity.Player;
  * @author Ricky
  */
 public class SetVariableAction implements Action {
-
+    
     String name;
     int val;
 
@@ -24,8 +24,12 @@ public class SetVariableAction implements Action {
     }
     
     @Override
-    public void run(Player p, HashMap<String, Integer> vars) {
-        vars.put(name, val);
+    public void run(Player p, HashMap<String, Integer> vars, HashMap<String, Integer> globals) {
+        if (name.startsWith("!")) {
+            globals.put(name, val);
+        } else {
+            vars.put(name, val);
+        }
     }
 
     @Override
@@ -34,6 +38,11 @@ public class SetVariableAction implements Action {
         map.put("name", name);
         map.put("val", val);
         return map;
+    }
+
+    @Override
+    public String toString() {
+        return "setvar {" + name + ", " + val + "}";
     }
 
 }
