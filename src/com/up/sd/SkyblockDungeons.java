@@ -14,16 +14,19 @@ import com.up.sd.trigger.action.MoveBlocksAction;
 import com.up.sd.trigger.action.SetVariableAction;
 import com.up.sd.trigger.action.TeleportAction;
 import com.up.sd.trigger.Trigger;
+import com.up.sd.trigger.action.RelativeTeleportAction;
 import com.up.sd.trigger.action.SpawnEntityAction;
 import com.up.sd.trigger.condition.EntityExistsCondition;
 import com.up.sd.trigger.condition.VariableEqualCondition;
 import com.up.sd.trigger.condition.VariableNotEqualCondition;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.permission.Permission;
@@ -54,18 +57,22 @@ import org.bukkit.potion.PotionEffectType;
  * - Add more actions:
  *  - VarSub
  *  - SoftTeleport
- *  - Spawn
+ *  - Set health
+ *  - Set hunger
+ *  - Give Item
  * - Add more conditions:
  *  - Click
  *  - VarLessthan
  *  - VarGreaterthan
  *  - EntityIn
+ *  - Has item
  * - Add trigger mode toggle (AND|OR)
  * - Variables in message
  * - Dungeon variable saving
  * - Delete options
  * - Rename options
  * - Entity potion effects should last forever
+ * - Split config files
  * 
  * @author Ricky
  */
@@ -76,9 +83,9 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
     Map<Player, Integer> errcools = new HashMap<>();
     Map<String, RewardPool> pools;
     List<Dungeon> duns;
-    Dungeon curd = null;
-    RewardPool curr = null;
-    Trigger curt = null;
+    HashMap<Player, Dungeon> curd = new HashMap<>();
+    HashMap<Player, RewardPool> curr = new HashMap<>();
+    HashMap<Player, Trigger> curt = new HashMap<>();
     int cooldown = 72000;
     double rewardamount = 0.5;
     public static Economy econ = null;
@@ -101,6 +108,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
         ConfigurationSerialization.registerClass(EffectAction.class);
         ConfigurationSerialization.registerClass(MessageAction.class);
         ConfigurationSerialization.registerClass(MoveBlocksAction.class);
+        ConfigurationSerialization.registerClass(RelativeTeleportAction.class);
         ConfigurationSerialization.registerClass(SetBlocksAction.class);
         ConfigurationSerialization.registerClass(SetVariableAction.class);
         ConfigurationSerialization.registerClass(SpawnEntityAction.class);
@@ -148,7 +156,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
         try {
             File dir = new File("plugins/SkyblockDungeons");
             if (!dir.exists()) dir.mkdir();
-            File f = new File("plugins/SkyblockDungeons/config.yml");
+            File f = new File(dir, "config.yml");
             if (!f.exists()) f.createNewFile();
             YamlConfiguration conf = new YamlConfiguration();
             conf.load(f);
@@ -160,9 +168,9 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
             pools = new HashMap<>();
             conf.getConfigurationSection("rewards").getValues(false).entrySet().stream().forEach(e -> pools.put(e.getKey(), (RewardPool)e.getValue()));
             getLogger().info("Loaded " + pools.size() + " rewards.");
-            curd = null;
-            curr = null;
-            curt = null;
+            curd.clear();
+            curr.clear();
+            curt.clear();
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -238,17 +246,21 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                     }
                                 }
                                 case "select": {
-                                    curd = duns.stream().filter((dun) -> (dun.getName().equals(args[2]))).findFirst().orElse(null);
-                                    if (curd != null) {
-                                        p.sendMessage(ChatColor.YELLOW + "Selected dungeon " + curd.getName());
+                                    Dungeon d = duns.stream().filter((dun) -> (dun.getName().equals(args[2]))).findFirst().orElse(null);
+                                    System.out.println(curd);
+                                    System.out.println(p);
+                                    System.out.println(d);
+                                    curd.put(p, d);
+                                    if (curd.get(p) != null) {
+                                        p.sendMessage(ChatColor.YELLOW + "Selected dungeon " + curd.get(p).getName());
                                     } else {
                                         p.sendMessage(ChatColor.RED + "ERROR: No such dungeon.");
                                     }
                                     return true;
                                 }
                                 case "set": {
-                                    if (curd != null) {
-                                        curd.setLocation(p.getLocation());
+                                    if (curd.get(p) != null) {
+                                        curd.get(p).setLocation(p.getLocation());
                                         p.sendMessage(ChatColor.YELLOW + "Set dungeon to " + p.getLocation());
                                     } else {
                                         p.sendMessage(ChatColor.RED + "ERROR: No dungeon selected.");
@@ -256,8 +268,8 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                     return true;
                                 }
                                 case "reward": {
-                                    if (curd != null) {
-                                        curd.setRewardName(args[2]);
+                                    if (curd.get(p) != null) {
+                                        curd.get(p).setRewardName(args[2]);
                                         p.sendMessage(ChatColor.YELLOW + "Set dungeon reward to " + args[2]);
                                     } else {
                                         p.sendMessage(ChatColor.RED + "ERROR: No dungeon selected.");
@@ -266,19 +278,19 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                 }
                                 case "trigger": {
                                     if (args.length > 2) {
-                                        if (curd != null) {
+                                        if (curd.get(p) != null) {
                                             Selection sel = worldEdit.getSelection(p);
                                             if (permission.has(p, "skyblockdungeons.sd.dun.trigger." + args[1]) || permission.has(p, "skyblockdungeons.sd.dun.trigger.*")) switch (args[2].toLowerCase()) {
                                                 case "action": {
                                                     if (args.length > 3) {
                                                         switch (args[3].toLowerCase()) {
                                                             case "add": {
-                                                                if (curt != null) {
+                                                                if (curt.get(p) != null) {
                                                                     if (args.length > 4) {
                                                                         switch (args[4].toLowerCase()) {
                                                                             case "addvar": {
                                                                                 if (args.length > 6) {
-                                                                                    curt.addAction(new AddVariableAction(args[5], Integer.parseInt(args[6])));
+                                                                                    curt.get(p).addAction(new AddVariableAction(args[5], Integer.parseInt(args[6])));
                                                                                     p.sendMessage(ChatColor.YELLOW + "Added new addvar action.");
                                                                                     return true;
                                                                                 } else {
@@ -288,7 +300,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                             }
                                                                             case "effect": {
                                                                                 if (args.length > 7) {
-                                                                                    curt.addAction(new EffectAction(new PotionEffect(PotionEffectType.getByName(args[5]), Integer.parseInt(args[6]), Integer.parseInt(args[7]))));
+                                                                                    curt.get(p).addAction(new EffectAction(new PotionEffect(PotionEffectType.getByName(args[5]), Integer.parseInt(args[6]), Integer.parseInt(args[7]))));
                                                                                     p.sendMessage(ChatColor.YELLOW + "Added new effect action.");
                                                                                     return true;
                                                                                 } else {
@@ -297,23 +309,38 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                                 }
                                                                             }
                                                                             case "message": {
-                                                                                curt.addAction(new MessageAction(String.join(" ", Arrays.copyOfRange(args, 5, args.length))));
+                                                                                curt.get(p).addAction(new MessageAction(String.join(" ", Arrays.copyOfRange(args, 5, args.length))));
                                                                                 p.sendMessage(ChatColor.YELLOW + "Added new message action.");
                                                                                 return true;
                                                                             }
                                                                             case "moveblocks": {
-                                                                                curt.addAction(new MoveBlocksAction(p.getLocation().subtract(0, 1, 0), sel.getMinimumPoint(), sel.getMaximumPoint()));
-                                                                                p.sendMessage(ChatColor.YELLOW + "Added new moveblocks action.");
+                                                                                if (sel != null && sel.getMinimumPoint() != null && sel.getMaximumPoint() != null) {
+                                                                                    curt.get(p).addAction(new MoveBlocksAction(p.getLocation().subtract(0, 1, 0), sel.getMinimumPoint(), sel.getMaximumPoint()));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new moveblocks action.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Must use WorldEdit to select an area");
+                                                                                    return true;
+                                                                                }
+                                                                            }
+                                                                            case "relteleport": {
+                                                                                curt.get(p).addAction(new RelativeTeleportAction(p.getLocation()));
+                                                                                p.sendMessage(ChatColor.YELLOW + "Added new relative teleport action.");
                                                                                 return true;
                                                                             }
                                                                             case "setblocks": {
-                                                                                curt.addAction(new SetBlocksAction(sel.getMinimumPoint(), sel.getMaximumPoint(), p.getItemInHand()));
-                                                                                p.sendMessage(ChatColor.YELLOW + "Added new setblocks action.");
-                                                                                return true;
+                                                                                if (sel != null && sel.getMinimumPoint() != null && sel.getMaximumPoint() != null) {
+                                                                                    curt.get(p).addAction(new SetBlocksAction(sel.getMinimumPoint(), sel.getMaximumPoint(), p.getItemInHand()));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new setblocks action.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Must use WorldEdit to select an area");
+                                                                                    return true;
+                                                                                }
                                                                             }
                                                                             case "setvar": {
                                                                                 if (args.length > 6) {
-                                                                                    curt.addAction(new SetVariableAction(args[5], Integer.parseInt(args[6])));
+                                                                                    curt.get(p).addAction(new SetVariableAction(args[5], Integer.parseInt(args[6])));
                                                                                     p.sendMessage(ChatColor.YELLOW + "Added new setvar action.");
                                                                                     return true;
                                                                                 } else {
@@ -333,7 +360,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                                     }
                                                                                     ArrayList<PotionEffect> pes = new ArrayList<>();
                                                                                     for (ItemStack i : p.getInventory().getContents()) if (i != null && i.getType() != null && i.getType().equals(Material.POTION)) pes.addAll(Potion.fromItemStack(i).getEffects());
-                                                                                    curt.addAction(new SpawnEntityAction(EntityType.valueOf(args[5]), Integer.parseInt(args[6]), p.getLocation(), health, name, pes, p.getInventory().getArmorContents(), p.getItemInHand()));
+                                                                                    curt.get(p).addAction(new SpawnEntityAction(EntityType.valueOf(args[5]), Integer.parseInt(args[6]), p.getLocation(), health, name, pes, p.getInventory().getArmorContents(), p.getItemInHand()));
                                                                                     p.sendMessage(ChatColor.YELLOW + "Added new spawn action.");
                                                                                     return true;
                                                                                 } else {
@@ -342,7 +369,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                                 }
                                                                             }
                                                                             case "teleport": {
-                                                                                curt.addAction(new TeleportAction(p.getLocation()));
+                                                                                curt.get(p).addAction(new TeleportAction(p.getLocation()));
                                                                                 p.sendMessage(ChatColor.YELLOW + "Added new teleport action.");
                                                                                 return true;
                                                                             }
@@ -361,10 +388,10 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                 }
                                                             }
                                                             case "list": {
-                                                                if (curt != null) {
-                                                                    p.sendMessage(ChatColor.YELLOW + "Actions in " + curt.getName() + ":");
-                                                                    for (int i = 0; i < curt.getActions().size(); i++) {
-                                                                        Action a  = curt.getActions().get(i);
+                                                                if (curt.get(p) != null) {
+                                                                    p.sendMessage(ChatColor.YELLOW + "Actions in " + curt.get(p).getName() + ":");
+                                                                    for (int i = 0; i < curt.get(p).getActions().size(); i++) {
+                                                                        Action a  = curt.get(p).getActions().get(i);
                                                                         p.sendMessage(ChatColor.YELLOW + "  " + i + ": " + a);
                                                                     }
                                                                     return true;
@@ -374,9 +401,9 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                 }
                                                             }
                                                             case "remove": {
-                                                                if (curt != null) {
+                                                                if (curt.get(p) != null) {
                                                                     if (args.length > 4) {
-                                                                        curt.removeAction(Integer.parseInt(args[4]));
+                                                                        curt.get(p).removeAction(Integer.parseInt(args[4]));
                                                                         p.sendMessage(ChatColor.YELLOW + "Removed action " + args[4]);
                                                                         return true;
                                                                     } else {
@@ -402,23 +429,33 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                     if (args.length > 3) {
                                                         switch (args[3].toLowerCase()) {
                                                             case "add": {
-                                                                if (curt != null) {
+                                                                if (curt.get(p) != null) {
                                                                     if (args.length > 4) {
                                                                         switch (args[4].toLowerCase()) {
                                                                             case "area": {
-                                                                                curt.addCondition(new AreaCondition(sel.getMinimumPoint(), sel.getMaximumPoint()));
-                                                                                p.sendMessage(ChatColor.YELLOW + "Added new area condition.");
-                                                                                return true;
+                                                                                if (sel != null && sel.getMinimumPoint() != null && sel.getMaximumPoint() != null) {
+                                                                                    curt.get(p).addCondition(new AreaCondition(sel.getMinimumPoint(), sel.getMaximumPoint()));
+                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new area condition.");
+                                                                                    return true;
+                                                                                } else {
+                                                                                    p.sendMessage(ChatColor.RED + "Must use WorldEdit to select an area");
+                                                                                    return true;
+                                                                                }
                                                                             }
                                                                             case "entityexists": {
                                                                                 if (args.length > 6) {
-                                                                                    String name = null;
-                                                                                    if (args.length > 7) {
-                                                                                        name = args[7];
+                                                                                    if (sel != null && sel.getMinimumPoint() != null && sel.getMaximumPoint() != null) {
+                                                                                        String name = null;
+                                                                                        if (args.length > 7) {
+                                                                                            name = args[7];
+                                                                                        }
+                                                                                        curt.get(p).addCondition(new EntityExistsCondition(sel.getMinimumPoint(), sel.getMaximumPoint(), EntityType.valueOf(args[5]), name));
+                                                                                        p.sendMessage(ChatColor.YELLOW + "Added new entityexists condition.");
+                                                                                        return true;
+                                                                                    } else {
+                                                                                        p.sendMessage(ChatColor.RED + "Must use WorldEdit to select an area");
+                                                                                        return true;
                                                                                     }
-                                                                                    curt.addCondition(new EntityExistsCondition(sel.getMinimumPoint(), sel.getMaximumPoint(), EntityType.valueOf(args[5]), name));
-                                                                                    p.sendMessage(ChatColor.YELLOW + "Added new entityexists condition.");
-                                                                                    return true;
                                                                                 } else {
                                                                                     p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger condition add entityexists <type> [name]");
                                                                                     return true;
@@ -426,7 +463,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                             }
                                                                             case "varequals": {
                                                                                 if (args.length > 5) {
-                                                                                    curt.addCondition(new VariableEqualCondition(args[5], Integer.parseInt(args[6])));
+                                                                                    curt.get(p).addCondition(new VariableEqualCondition(args[5], Integer.parseInt(args[6])));
                                                                                     p.sendMessage(ChatColor.YELLOW + "Added new varequals condition.");
                                                                                     return true;
                                                                                 } else {
@@ -436,7 +473,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                             }
                                                                             case "varnotequals": {
                                                                                 if (args.length > 5) {
-                                                                                    curt.addCondition(new VariableNotEqualCondition(args[5], Integer.parseInt(args[6])));
+                                                                                    curt.get(p).addCondition(new VariableNotEqualCondition(args[5], Integer.parseInt(args[6])));
                                                                                     p.sendMessage(ChatColor.YELLOW + "Added new varnotequals condition.");
                                                                                     return true;
                                                                                 } else {
@@ -459,10 +496,10 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                 }
                                                             }
                                                             case "list": {
-                                                                if (curt != null) {
-                                                                    p.sendMessage(ChatColor.YELLOW + "Conditions in " + curt.getName() + ":");
-                                                                    for (int i = 0; i < curt.getConditions().size(); i++) {
-                                                                        Condition c  = curt.getConditions().get(i);
+                                                                if (curt.get(p) != null) {
+                                                                    p.sendMessage(ChatColor.YELLOW + "Conditions in " + curt.get(p).getName() + ":");
+                                                                    for (int i = 0; i < curt.get(p).getConditions().size(); i++) {
+                                                                        Condition c  = curt.get(p).getConditions().get(i);
                                                                         p.sendMessage(ChatColor.YELLOW + "  " + i + ": " + c);
                                                                     }
                                                                     return true;
@@ -472,9 +509,9 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                                 }
                                                             }
                                                             case "remove": {
-                                                                if (curt != null) {
+                                                                if (curt.get(p) != null) {
                                                                     if (args.length > 4) {
-                                                                        curt.removeCondition(Integer.parseInt(args[4]));
+                                                                        curt.get(p).removeCondition(Integer.parseInt(args[4]));
                                                                         p.sendMessage(ChatColor.YELLOW + "Removed condition " + args[4]);
                                                                         return true;
                                                                     } else {
@@ -499,7 +536,7 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                 case "create": {
                                                     if (args.length > 3) {
                                                         Trigger t = new Trigger(args[3]);
-                                                        curd.addTrigger(t);
+                                                        curd.get(p).addTrigger(t);
                                                         p.sendMessage(ChatColor.YELLOW + "Created trigger " + t.getName());
                                                         return true;
                                                     } else {
@@ -509,8 +546,8 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                 }
                                                 case "inverted": {
                                                     if (args.length > 3) {
-                                                        curt.setInverted(Boolean.parseBoolean(args[3]));
-                                                        p.sendMessage(ChatColor.YELLOW + "Set trigger to be " + (curt.isInverted() ? "" : "not ") + "inverted");
+                                                        curt.get(p).setInverted(Boolean.parseBoolean(args[3]));
+                                                        p.sendMessage(ChatColor.YELLOW + "Set trigger to be " + (curt.get(p).isInverted() ? "" : "not ") + "inverted");
                                                         return true;
                                                     } else {
                                                         p.sendMessage(ChatColor.RED + "Usage: /sd dun trigger inverted <true|false>");
@@ -518,14 +555,14 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                                     }
                                                 }
                                                 case "list": {
-                                                    p.sendMessage(ChatColor.YELLOW + "Triggers in " + curd.getName() + ":");
-                                                    for (Trigger t : curd.getTriggers()) p.sendMessage(ChatColor.YELLOW + "  " + t.getName());
+                                                    p.sendMessage(ChatColor.YELLOW + "Triggers in " + curd.get(p).getName() + ":");
+                                                    for (Trigger t : curd.get(p).getTriggers()) p.sendMessage(ChatColor.YELLOW + "  " + t.getName());
                                                     return true;
                                                 }
                                                 case "select": {
-                                                    curt = curd.getTriggers().stream().filter((t) -> (t.getName().equals(args[3]))).findFirst().orElse(null);
-                                                    if (curt != null) {
-                                                        p.sendMessage(ChatColor.YELLOW + "Selected trigger " + curt.getName());
+                                                    curt.put(p, curd.get(p).getTriggers().stream().filter((t) -> (t.getName().equals(args[3]))).findFirst().orElse(null));
+                                                    if (curt.get(p) != null) {
+                                                        p.sendMessage(ChatColor.YELLOW + "Selected trigger " + curt.get(p).getName());
                                                     } else {
                                                         p.sendMessage(ChatColor.RED + "ERROR: No such trigger.");
                                                     }
@@ -546,13 +583,13 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                     }
                                 }
                                 case "vars": {
-                                    if (curd != null) {
+                                    if (curd.get(p) != null) {
                                         if (args.length > 2) {
                                             p.sendMessage(ChatColor.YELLOW + "Player " + p.getName() + "'s variables:");
-                                            for (Map.Entry<String, Integer> e : curd.vars.get(p).entrySet()) p.sendMessage(ChatColor.YELLOW + "  " + e.getKey() + ": " + e.getValue());
+                                            for (Map.Entry<String, Integer> e : curd.get(p).vars.get(p).entrySet()) p.sendMessage(ChatColor.YELLOW + "  " + e.getKey() + ": " + e.getValue());
                                         } else {
                                             p.sendMessage(ChatColor.YELLOW + "Dungeon global variables:");
-                                            for (Map.Entry<String, Integer> e : curd.globals.entrySet()) p.sendMessage(ChatColor.YELLOW + "  " + e.getKey() + ": " + e.getValue());
+                                            for (Map.Entry<String, Integer> e : curd.get(p).globals.entrySet()) p.sendMessage(ChatColor.YELLOW + "  " + e.getKey() + ": " + e.getValue());
                                             
                                         }
                                     } else {
@@ -575,9 +612,27 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                         if (args.length > 1) {
                             if (permission.has(p, "skyblockdungeons.sd.reward." + args[1]) || permission.has(p, "skyblockdungeons.sd.reward.*")) switch (args[1].toLowerCase()) {
                                 case "add": {
-                                    if (curr != null) {
-                                        curr.addItem(p.getItemInHand().clone());
-                                        p.sendMessage(ChatColor.YELLOW + "Added item to reward");
+                                    if (curr.get(p) != null) {
+                                        curr.get(p).addItem(p.getItemInHand().clone());
+                                        p.sendMessage(ChatColor.YELLOW + "Added item to reward " + getCurrentRewardName(p));
+                                    } else {
+                                        p.sendMessage(ChatColor.RED + "ERROR: No reward selected.");
+                                    }
+                                    return true;
+                                }
+                                case "items": {
+                                    if (curr.get(p) != null) {
+                                        p.sendMessage(ChatColor.YELLOW + "Items in " + getCurrentRewardName(p) + ":");
+                                        curr.get(p).getItems().stream()
+                                                .collect(
+                                                        () -> new HashMap<Double, Double>(), 
+                                                        (a, i) -> {
+                                                            double d = i.getTypeId() + i.getData().getData() / 100d;
+                                                            if (a.containsKey(d)) a.put(d, a.get(d) + i.getAmount() + 0.01); else a.put(d, i.getAmount() + 0.01);
+                                                        }, 
+                                                        (a, b) -> a.putAll(b)
+                                                )
+                                                .forEach((d, a) -> p.sendMessage(ChatColor.YELLOW + "#" + (int)Math.floor(d) + ":" + (int)((d - Math.floor(d)) * 100) + " - " + (int)Math.floor(a) + "/" + (Math.floor(a) / ((a - Math.floor(a)) * 100))));
                                     } else {
                                         p.sendMessage(ChatColor.RED + "ERROR: No reward selected.");
                                     }
@@ -594,10 +649,10 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                     }
                                 }
                                 case "money": {
-                                    if (curr != null) {
+                                    if (curr.get(p) != null) {
                                         if (args.length > 2) {
-                                            curr.setMoney(Double.parseDouble(args[2]));
-                                            p.sendMessage(ChatColor.YELLOW + "Set money to $" + args[2]);
+                                            curr.get(p).setMoney(Double.parseDouble(args[2]));
+                                            p.sendMessage(ChatColor.YELLOW + "Set money for " + getCurrentRewardName(p) + " to $" + args[2]);
                                             return true;
                                         } else {
                                             p.sendMessage(ChatColor.RED + "Usage: /sd reward money <amount>");
@@ -609,8 +664,8 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
                                     }
                                 }
                                 case "select": {
-                                    curr = pools.entrySet().stream().filter((reward) -> (reward.getKey().equals(args[2]))).map(reward -> reward.getValue()).findFirst().orElse(null);
-                                    if (curr != null) {
+                                    curr.put(p, pools.entrySet().stream().filter((reward) -> (reward.getKey().equals(args[2]))).map(reward -> reward.getValue()).findFirst().orElse(null));
+                                    if (curr.get(p) != null) {
                                         p.sendMessage(ChatColor.YELLOW + "Selected reward " + args[2]);
                                     } else {
                                         p.sendMessage(ChatColor.RED + "ERROR: No such reward.");
@@ -668,207 +723,207 @@ public class SkyblockDungeons extends JavaPlugin implements Listener {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (cmd.getName().equalsIgnoreCase("sd")) {
-            if (args.length > 1) {
-                switch (args[0].toLowerCase()) {
-                    case "list": {
-                        return new ArrayList<>();
-                    }
-                    case "dun": {
-                        if (args.length > 2) {
-                            switch (args[1].toLowerCase()) {
-                                case "create": {
-                                    return new ArrayList<>();
-                                }
-                                case "reward": {
-                                    return pools.entrySet().stream().map(pool -> pool.getKey()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
-                                }
-                                case "select": {
-                                    return duns.stream().map(dun -> dun.getName()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
-                                }
-                                case "set": {
-                                    return new ArrayList<>();
-                                }
-                                case "trigger": {
-                                    if (args.length > 3) {
-                                        switch (args[2].toLowerCase()) {
-                                            case "action": {
-                                                if (args.length > 4) {
-                                                    switch (args[3].toLowerCase()) {
-                                                        case "add": {
-                                                            if (args.length > 5) {
-                                                                switch (args[4].toLowerCase()) {
-                                                                    case "addvar": {
-                                                                        if (curd != null) {
-                                                                            return curd.getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
-                                                                        } else {
+        if (sender instanceof Player) {
+            Player p = (Player)sender;
+            if (cmd.getName().equalsIgnoreCase("sd")) {
+                if (args.length > 1) {
+                    switch (args[0].toLowerCase()) {
+                        case "list": {
+                            return new ArrayList<>();
+                        }
+                        case "dun": {
+                            if (args.length > 2) {
+                                switch (args[1].toLowerCase()) {
+                                    case "create": {
+                                        return new ArrayList<>();
+                                    }
+                                    case "reward": {
+                                        return pools.entrySet().stream().map(pool -> pool.getKey()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
+                                    }
+                                    case "select": {
+                                        return duns.stream().map(dun -> dun.getName()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
+                                    }
+                                    case "set": {
+                                        return new ArrayList<>();
+                                    }
+                                    case "trigger": {
+                                        if (args.length > 3) {
+                                            switch (args[2].toLowerCase()) {
+                                                case "action": {
+                                                    if (args.length > 4) {
+                                                        switch (args[3].toLowerCase()) {
+                                                            case "add": {
+                                                                if (args.length > 5) {
+                                                                    switch (args[4].toLowerCase()) {
+                                                                        case "addvar": {
+                                                                            if (curd.get(p) != null) {
+                                                                                return curd.get(p).getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                            } else {
+                                                                                return new ArrayList<>();
+                                                                            }
+                                                                        }
+                                                                        case "effect": {
+                                                                            if (args.length == 6) {
+                                                                                return Arrays.asList(PotionEffectType.values()).stream().filter(e -> e != null).map(e -> e.getName()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                            }
                                                                             return new ArrayList<>();
                                                                         }
-                                                                    }
-                                                                    case "effect": {
-                                                                        if (args.length == 6) {
-                                                                            return Arrays.asList(PotionEffectType.values()).stream().filter(e -> e != null).map(e -> e.getName()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
-                                                                        }
-                                                                        return new ArrayList<>();
-                                                                    }
-                                                                    case "message": {
-                                                                        return new ArrayList<>();
-                                                                    }
-                                                                    case "setblocks": {
-                                                                        return new ArrayList<>();
-                                                                    }
-                                                                    case "setvar": {
-                                                                        if (curd != null) {
-                                                                            return curd.getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
-                                                                        } else {
+                                                                        case "message":
+                                                                        case "moveblocks":
+                                                                        case "relteleport":
+                                                                        case "setblocks": {
                                                                             return new ArrayList<>();
                                                                         }
-                                                                    }
-                                                                    case "spawn": {
-                                                                        if (args.length == 6) {
-                                                                            return Arrays.asList(EntityType.values()).stream().filter(e -> e != null).map(e -> e.name()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                        case "setvar": {
+                                                                            if (curd.get(p) != null) {
+                                                                                return curd.get(p).getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                            } else {
+                                                                                return new ArrayList<>();
+                                                                            }
                                                                         }
-                                                                        return new ArrayList<>();
-                                                                    }
-                                                                    case "teleport": {
-                                                                        return new ArrayList<>();
-                                                                    }
-                                                                }
-                                                            }
-                                                            return Arrays.asList(new String[] {"addvar", "effect", "message", "moveblocks", "setblocks", "setvar", "spawn", "teleport"}).stream().filter(s -> s.startsWith(args[4])).collect(Collectors.toList());
-                                                        }
-                                                        case "list": {
-                                                            return new ArrayList<>();
-                                                        }
-                                                        case "remove": {
-                                                            if (curt != null) {
-                                                                ArrayList<String> tabs = new ArrayList<>();
-                                                                for (int i = 0; i < curt.getActions().size(); i++) tabs.add(i + "");
-                                                                return tabs;
-                                                            } else {
-                                                                return new ArrayList<>();
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                return Arrays.asList(new String[] {"add", "list", "remove"}).stream().filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
-                                            }
-                                            case "condition": {
-                                                if (args.length > 4) {
-                                                    switch (args[3].toLowerCase()) {
-                                                        case "add": {
-                                                            if (args.length > 5) {
-                                                                switch (args[4].toLowerCase()) {
-                                                                    case "area": {
-                                                                        return new ArrayList<>();
-                                                                    }
-                                                                    case "entityexists": {
-                                                                        if (args.length == 6) {
-                                                                            return Arrays.asList(EntityType.values()).stream().filter(e -> e != null).map(e -> e.name()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
-                                                                        }
-                                                                        return new ArrayList<>();
-                                                                    }
-                                                                    case "varequals": {
-                                                                        if (curt != null) {
-                                                                            return curd.getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
-                                                                        } else {
+                                                                        case "spawn": {
+                                                                            if (args.length == 6) {
+                                                                                return Arrays.asList(EntityType.values()).stream().filter(e -> e != null).map(e -> e.name()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                            }
                                                                             return new ArrayList<>();
                                                                         }
-                                                                    }
-                                                                    case "varnotequals": {
-                                                                        if (curt != null) {
-                                                                            return curd.getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
-                                                                        } else {
+                                                                        case "teleport": {
                                                                             return new ArrayList<>();
                                                                         }
                                                                     }
                                                                 }
+                                                                return Arrays.asList(new String[] {"addvar", "effect", "message", "moveblocks", "relteleport", "setblocks", "setvar", "spawn", "teleport"}).stream().filter(s -> s.startsWith(args[4])).collect(Collectors.toList());
                                                             }
-                                                            return Arrays.asList(new String[] {"area", "entityexists", "varequals", "varnotequals"}).stream().filter(s -> s.startsWith(args[4])).collect(Collectors.toList());
-                                                        }
-                                                        case "list": {
-                                                            return new ArrayList<>();
-                                                        }
-                                                        case "remove": {
-                                                            if (curt != null) {
-                                                                ArrayList<String> tabs = new ArrayList<>();
-                                                                for (int i = 0; i < curt.getConditions().size(); i++) tabs.add(i + "");
-                                                                return tabs;
-                                                            } else {
+                                                            case "list": {
                                                                 return new ArrayList<>();
+                                                            }
+                                                            case "remove": {
+                                                                if (curt.get(p) != null) {
+                                                                    ArrayList<String> tabs = new ArrayList<>();
+                                                                    for (int i = 0; i < curt.get(p).getActions().size(); i++) tabs.add(i + "");
+                                                                    return tabs;
+                                                                } else {
+                                                                    return new ArrayList<>();
+                                                                }
                                                             }
                                                         }
                                                     }
+                                                    return Arrays.asList(new String[] {"add", "list", "remove"}).stream().filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
                                                 }
-                                                return Arrays.asList(new String[] {"add", "list", "remove"}).stream().filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
-                                            }
-                                            case "create": {
-                                                return new ArrayList<>();
-                                            }
-                                            case "list": {
-                                                return new ArrayList<>();
-                                            }
-                                            case "inverted": {
-                                                return Arrays.asList(new String[] {"true", "false"}).stream().filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
-                                            }
-                                            case "select": {
-                                                if (curd != null) {
-                                                    return curd.getTriggers().stream().map(t -> t.getName()).filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
-                                                } else {
+                                                case "condition": {
+                                                    if (args.length > 4) {
+                                                        switch (args[3].toLowerCase()) {
+                                                            case "add": {
+                                                                if (args.length > 5) {
+                                                                    switch (args[4].toLowerCase()) {
+                                                                        case "area": {
+                                                                            return new ArrayList<>();
+                                                                        }
+                                                                        case "entityexists": {
+                                                                            if (args.length == 6) {
+                                                                                return Arrays.asList(EntityType.values()).stream().filter(e -> e != null).map(e -> e.name()).filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                            }
+                                                                            return new ArrayList<>();
+                                                                        }
+                                                                        case "varequals": {
+                                                                            if (curt.get(p) != null) {
+                                                                                return curd.get(p).getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                            } else {
+                                                                                return new ArrayList<>();
+                                                                            }
+                                                                        }
+                                                                        case "varnotequals": {
+                                                                            if (curt.get(p) != null) {
+                                                                                return curd.get(p).getAllVariableNames().stream().filter(s -> s.startsWith(args[5])).collect(Collectors.toList());
+                                                                            } else {
+                                                                                return new ArrayList<>();
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                return Arrays.asList(new String[] {"area", "entityexists", "varequals", "varnotequals"}).stream().filter(s -> s.startsWith(args[4])).collect(Collectors.toList());
+                                                            }
+                                                            case "list": {
+                                                                return new ArrayList<>();
+                                                            }
+                                                            case "remove": {
+                                                                if (curt.get(p) != null) {
+                                                                    ArrayList<String> tabs = new ArrayList<>();
+                                                                    for (int i = 0; i < curt.get(p).getConditions().size(); i++) tabs.add(i + "");
+                                                                    return tabs;
+                                                                } else {
+                                                                    return new ArrayList<>();
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    return Arrays.asList(new String[] {"add", "list", "remove"}).stream().filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
+                                                }
+                                                case "create":
+                                                case "list": {
                                                     return new ArrayList<>();
+                                                }
+                                                case "inverted": {
+                                                    return Arrays.asList(new String[] {"true", "false"}).stream().filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
+                                                }
+                                                case "select": {
+                                                    if (curd.get(p) != null) {
+                                                        return curd.get(p).getTriggers().stream().map(t -> t.getName()).filter(s -> s.startsWith(args[3])).collect(Collectors.toList());
+                                                    } else {
+                                                        return new ArrayList<>();
+                                                    }
                                                 }
                                             }
                                         }
+                                        return Arrays.asList(new String[] {"action", "condition", "create", "inverted", "list", "select"}).stream().filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
                                     }
-                                    return Arrays.asList(new String[] {"action", "condition", "create", "inverted", "list", "select"}).stream().filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
-                                }
-                                case "vars": {
-                                    return Arrays.asList(Bukkit.getOnlinePlayers()).stream().map(p -> p.getName()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
-                                }
-                            }
-                        }
-                        return Arrays.asList(new String[] {"create", "reward", "select", "set", "trigger", "vars"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
-                    }
-                    case "reward": {
-                        if (args.length > 2) {
-                            switch (args[1].toLowerCase()) {
-                                case "add": {
-                                    return new ArrayList<>();
-                                }
-                                case "create": {
-                                    return new ArrayList<>();
-                                }
-                                case "money": {
-                                    return new ArrayList<>();
-                                }
-                                case "select": {
-                                    return pools.entrySet().stream().map(pool -> pool.getKey()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
+                                    case "vars": {
+                                        return Arrays.asList(Bukkit.getOnlinePlayers()).stream().map(pl -> pl.getName()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
+                                    }
                                 }
                             }
+                            return Arrays.asList(new String[] {"create", "reward", "select", "set", "trigger", "vars"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
                         }
-                        return Arrays.asList(new String[] {"add", "create", "money", "select"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
-                    }
-                    case "manage": {
-                        if (args.length > 2) {
-                            switch (args[1].toLowerCase()) {
-                                case "reload": {
-                                    return new ArrayList<>();
-                                }
-                                case "save": {
-                                    return new ArrayList<>();
+                        case "reward": {
+                            if (args.length > 2) {
+                                switch (args[1].toLowerCase()) {
+                                    case "add":
+                                    case "create":
+                                    case "items":
+                                    case "money": {
+                                        return new ArrayList<>();
+                                    }
+                                    case "select": {
+                                        return pools.entrySet().stream().map(pool -> pool.getKey()).filter(s -> s.startsWith(args[2])).collect(Collectors.toList());
+                                    }
                                 }
                             }
+                            return Arrays.asList(new String[] {"add", "create", "items", "money", "select"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
                         }
-                        return Arrays.asList(new String[] {"reload", "save"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
+                        case "manage": {
+                            if (args.length > 2) {
+                                switch (args[1].toLowerCase()) {
+                                    case "reload":
+                                    case "save": {
+                                        return new ArrayList<>();
+                                    }
+                                }
+                            }
+                            return Arrays.asList(new String[] {"reload", "save"}).stream().filter(s -> s.startsWith(args[1])).collect(Collectors.toList());
+                        }
                     }
                 }
+                return Arrays.asList(new String[] {"dun", "list", "manage", "reward"}).stream().filter(s -> s.startsWith(args[0])).collect(Collectors.toList());
             }
-            return Arrays.asList(new String[] {"dun", "list", "manage", "reward"}).stream().filter(s -> s.startsWith(args[0])).collect(Collectors.toList());
         }
         return null;
     }
     
     public static String prettyLocation(Location l) {
         return "Location {" + l.getWorld().getName() + ", " + Math.round(l.getX() * 10) * 0.1 + ", " + Math.round(l.getY() * 10) * 0.1 + ", " + Math.round(l.getZ() * 10) * 0.1 + "}";
+    }
+    
+    public String getCurrentRewardName(Player p) {
+        return pools.entrySet().stream().filter(e -> e.getValue().equals(curr.get(p))).findFirst().get().getKey();
     }
 }
